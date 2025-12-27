@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>3D Granny Horror Starter</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; background: white; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0.5; }
+        #ui { position: absolute; bottom: 20px; left: 20px; color: red; font-size: 20px; }
+        #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(139,0,0,0.4); display: none; justify-content: center; align-items: center; color: white; flex-direction: column; }
+    </style>
+</head>
+<body>
+
+<div id="crosshair"></div>
+<div id="ui">RUN AWAY FROM GRANNY!</div>
+<div id="overlay">
+    <h1>YOU WERE CAUGHT!</h1>
+    <button onclick="location.reload()" style="padding: 10px 20px; cursor: pointer;">TRY AGAIN</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+    let scene, camera, renderer, granny, player;
+    let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+    let velocity = new THREE.Vector3();
+    let direction = new THREE.Vector3();
+    let isGameOver = false;
+
+    function init() {
+        scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x000000, 0.15); // Horror fog effect
+
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Lights
+        const flashlight = new THREE.SpotLight(0xffffff, 1);
+        flashlight.position.set(0, 0, 1);
+        camera.add(flashlight); // Torch moves with camera
+        flashlight.target.position.set(0, 0, -1);
+        camera.add(flashlight.target);
+        scene.add(camera);
+
+        // Floor
+        const floorGeo = new THREE.PlaneGeometry(100, 100);
+        const floorMat = new THREE.MeshPhongMaterial({ color: 0x111111 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        scene.add(floor);
+
+        // Scary Granny (Red Cube for now)
+        const grannyGeo = new THREE.BoxGeometry(1, 2, 1);
+        const grannyMat = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+        granny = new THREE.Mesh(grannyGeo, grannyMat);
+        granny.position.set(10, 1, -10);
+        scene.add(granny);
+
+        // Walls (Boundary)
+        const wallMat = new THREE.MeshPhongMaterial({ color: 0x333333 });
+        const wallGeo = new THREE.BoxGeometry(1, 5, 50);
+        const wall1 = new THREE.Mesh(wallGeo, wallMat);
+        wall1.position.set(15, 2.5, 0);
+        scene.add(wall1);
+
+        // Controls
+        document.addEventListener('keydown', (e) => onKey(e, true));
+        document.addEventListener('keyup', (e) => onKey(e, false));
+        document.addEventListener('mousedown', () => renderer.domElement.requestPointerLock());
+
+        // Mouse rotation
+        document.addEventListener('mousemove', (e) => {
+            if (document.pointerLockElement) {
+                camera.rotation.y -= e.movementX * 0.002;
+            }
+        });
+
+        camera.position.y = 1.6; // Player height
+        animate();
+    }
+
+    function onKey(event, status) {
+        switch(event.code) {
+            case 'KeyW': moveForward = status; break;
+            case 'KeyS': moveBackward = status; break;
+            case 'KeyA': moveLeft = status; break;
+            case 'KeyD': moveRight = status; break;
+        }
+    }
+
+    function animate() {
+        if (isGameOver) return;
+        requestAnimationFrame(animate);
+
+        // Player movement logic
+        const speed = 0.1;
+        if (moveForward) camera.translateZ(-speed);
+        if (moveBackward) camera.translateZ(speed);
+        if (moveLeft) camera.translateX(-speed);
+        if (moveRight) camera.translateX(speed);
+        camera.position.y = 1.6; // Keep height constant
+
+        // AI: Granny follows you
+        const dx = camera.position.x - granny.position.x;
+        const dz = camera.position.z - granny.position.z;
+        const angle = Math.atan2(dx, dz);
+        granny.position.x += Math.sin(angle) * 0.03;
+        granny.position.z += Math.cos(angle) * 0.03;
+
+        // Collision detection
+        const dist = camera.position.distanceTo(granny.position);
+        if (dist < 1.5) {
+            isGameOver = true;
+            document.getElementById('overlay').style.display = 'flex';
+            document.exitPointerLock();
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    init();
+</script>
+</body>
+</html>

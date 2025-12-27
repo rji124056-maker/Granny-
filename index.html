@@ -1,127 +1,110 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>3D Granny Horror Starter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mobile Subway Surfers</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
-        #crosshair { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; background: white; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0.5; }
-        #ui { position: absolute; bottom: 20px; left: 20px; color: red; font-size: 20px; }
-        #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(139,0,0,0.4); display: none; justify-content: center; align-items: center; color: white; flex-direction: column; }
+        body { margin: 0; background: #222; overflow: hidden; font-family: sans-serif; touch-action: none; }
+        #game-container { position: relative; width: 100vw; height: 100vh; background: linear-gradient(#87CEEB 60%, #555 60%); overflow: hidden; }
+        #player { position: absolute; width: 50px; height: 50px; background: #ff4757; bottom: 100px; left: 50%; transform: translateX(-50%); border-radius: 10px; transition: left 0.2s, bottom 0.2s; z-index: 10; box-shadow: 0 10px 0 #c0392b; }
+        .obstacle { position: absolute; width: 60px; height: 40px; background: #2f3542; top: -50px; border-radius: 5px; }
+        .coin { position: absolute; width: 30px; height: 30px; background: gold; top: -50px; border-radius: 50%; border: 3px solid #eccc68; }
+        #score { position: absolute; top: 20px; left: 20px; color: white; font-size: 24px; font-weight: bold; }
     </style>
 </head>
 <body>
 
-<div id="crosshair"></div>
-<div id="ui">RUN AWAY FROM GRANNY!</div>
-<div id="overlay">
-    <h1>YOU WERE CAUGHT!</h1>
-    <button onclick="location.reload()" style="padding: 10px 20px; cursor: pointer;">TRY AGAIN</button>
+<div id="game-container">
+    <div id="score">Score: 0</div>
+    <div id="player"></div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-
 <script>
-    let scene, camera, renderer, granny, player;
-    let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
-    let velocity = new THREE.Vector3();
-    let direction = new THREE.Vector3();
-    let isGameOver = false;
+    const container = document.getElementById('game-container');
+    const player = document.getElementById('player');
+    const scoreElement = document.getElementById('score');
+    
+    let score = 0;
+    let currentLane = 1; // 0: Left, 1: Middle, 2: Right
+    const lanes = ['20%', '50%', '80%'];
+    let isJumping = false;
+    let gameActive = true;
 
-    function init() {
-        scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x000000, 0.15); // Horror fog effect
+    // --- Controls (Swipe) ---
+    let touchStart = 0;
+    document.addEventListener('touchstart', e => touchStart = e.touches[0].clientX);
+    document.addEventListener('touchend', e => {
+        let touchEnd = e.changedTouches[0].clientX;
+        if (touchStart - touchEnd > 50) moveLane(-1); // Swipe Left
+        else if (touchEnd - touchStart > 50) moveLane(1); // Swipe Right
+        else jump(); // Tap to jump
+    });
 
-        camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+    function moveLane(dir) {
+        currentLane = Math.max(0, Math.min(2, currentLane + dir));
+        player.style.left = lanes[currentLane];
+    }
+
+    function jump() {
+        if (isJumping) return;
+        isJumping = true;
+        player.style.bottom = '200px';
+        setTimeout(() => {
+            player.style.bottom = '100px';
+            setTimeout(() => isJumping = false, 200);
+        }, 300);
+    }
+
+    // --- Obstacles & Coins Logic ---
+    function spawnObject() {
+        if (!gameActive) return;
         
-        renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
+        const isCoin = Math.random() > 0.5;
+        const obj = document.createElement('div');
+        obj.className = isCoin ? 'coin' : 'obstacle';
+        
+        const laneIdx = Math.floor(Math.random() * 3);
+        obj.style.left = lanes[laneIdx];
+        container.appendChild(obj);
 
-        // Lights
-        const flashlight = new THREE.SpotLight(0xffffff, 1);
-        flashlight.position.set(0, 0, 1);
-        camera.add(flashlight); // Torch moves with camera
-        flashlight.target.position.set(0, 0, -1);
-        camera.add(flashlight.target);
-        scene.add(camera);
+        let top = -50;
+        const interval = setInterval(() => {
+            if (!gameActive) { clearInterval(interval); return; }
+            top += 5;
+            obj.style.top = top + 'px';
 
-        // Floor
-        const floorGeo = new THREE.PlaneGeometry(100, 100);
-        const floorMat = new THREE.MeshPhongMaterial({ color: 0x111111 });
-        const floor = new THREE.Mesh(floorGeo, floorMat);
-        floor.rotation.x = -Math.PI / 2;
-        scene.add(floor);
+            // Collision Check
+            const pRect = player.getBoundingClientRect();
+            const oRect = obj.getBoundingClientRect();
 
-        // Scary Granny (Red Cube for now)
-        const grannyGeo = new THREE.BoxGeometry(1, 2, 1);
-        const grannyMat = new THREE.MeshPhongMaterial({ color: 0xff0000 });
-        granny = new THREE.Mesh(grannyGeo, grannyMat);
-        granny.position.set(10, 1, -10);
-        scene.add(granny);
-
-        // Walls (Boundary)
-        const wallMat = new THREE.MeshPhongMaterial({ color: 0x333333 });
-        const wallGeo = new THREE.BoxGeometry(1, 5, 50);
-        const wall1 = new THREE.Mesh(wallGeo, wallMat);
-        wall1.position.set(15, 2.5, 0);
-        scene.add(wall1);
-
-        // Controls
-        document.addEventListener('keydown', (e) => onKey(e, true));
-        document.addEventListener('keyup', (e) => onKey(e, false));
-        document.addEventListener('mousedown', () => renderer.domElement.requestPointerLock());
-
-        // Mouse rotation
-        document.addEventListener('mousemove', (e) => {
-            if (document.pointerLockElement) {
-                camera.rotation.y -= e.movementX * 0.002;
+            if (pRect.left < oRect.right && pRect.right > oRect.left &&
+                pRect.top < oRect.bottom && pRect.bottom > oRect.top) {
+                
+                if (isCoin) {
+                    score += 10;
+                    scoreElement.innerText = `Score: ${score}`;
+                    obj.remove();
+                    clearInterval(interval);
+                } else if (!isJumping) {
+                    gameOver();
+                }
             }
-        });
 
-        camera.position.y = 1.6; // Player height
-        animate();
+            if (top > window.innerHeight) {
+                obj.remove();
+                clearInterval(interval);
+            }
+        }, 20);
     }
 
-    function onKey(event, status) {
-        switch(event.code) {
-            case 'KeyW': moveForward = status; break;
-            case 'KeyS': moveBackward = status; break;
-            case 'KeyA': moveLeft = status; break;
-            case 'KeyD': moveRight = status; break;
-        }
+    function gameOver() {
+        gameActive = false;
+        alert("Game Over! Score: " + score);
+        location.reload();
     }
 
-    function animate() {
-        if (isGameOver) return;
-        requestAnimationFrame(animate);
+    setInterval(spawnObject, 1000);
 
-        // Player movement logic
-        const speed = 0.1;
-        if (moveForward) camera.translateZ(-speed);
-        if (moveBackward) camera.translateZ(speed);
-        if (moveLeft) camera.translateX(-speed);
-        if (moveRight) camera.translateX(speed);
-        camera.position.y = 1.6; // Keep height constant
-
-        // AI: Granny follows you
-        const dx = camera.position.x - granny.position.x;
-        const dz = camera.position.z - granny.position.z;
-        const angle = Math.atan2(dx, dz);
-        granny.position.x += Math.sin(angle) * 0.03;
-        granny.position.z += Math.cos(angle) * 0.03;
-
-        // Collision detection
-        const dist = camera.position.distanceTo(granny.position);
-        if (dist < 1.5) {
-            isGameOver = true;
-            document.getElementById('overlay').style.display = 'flex';
-            document.exitPointerLock();
-        }
-
-        renderer.render(scene, camera);
-    }
-
-    init();
 </script>
 </body>
 </html>
